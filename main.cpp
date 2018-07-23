@@ -1,18 +1,16 @@
 #include <iostream>
-#include <ctime>
-#include <string>
 #include <list>
-#include <algorithm>
 #include <sstream>
 #include <fstream>
 #include "colors.h"
 #include <sqlite3.h>
-#include <netdb.h>
 #include <sys/param.h>
+#include "boost/date_time/posix_time/posix_time.hpp"
 
 using namespace std;
+using namespace boost::posix_time;
 
-#define TASKS_FILE "tasks.dat"
+#define TASKS_FILE "/Users/pelski/.tasks.db"
 
 enum Command {
     T_NONE,
@@ -33,7 +31,8 @@ enum Command {
     T_ACTUAL,
     T_RUN,
     T_EXIT,
-    T_HELP
+    T_HELP,
+    T_PROJECT
 };
 
 enum TaskPriority {
@@ -95,11 +94,11 @@ bool compareStrings(const string &s1, const string &s2) {
 
 void displayTask(Task task) {
     string tmp = "#" + to_string(task.ID);
-    cout << termcolor::cyan;
     cout.width(7);
+    cout << termcolor::cyan;
     cout << std::right << tmp << " ";
 
-    cout.width(15);
+    cout.width(10);
     cout << termcolor::green << task.date << " -- ";
     cout << termcolor::bold;
 
@@ -120,7 +119,7 @@ void displayTask(Task task) {
         default:break;
     }
 
-    //cout.width(45);
+//    cout.width(45);
     cout << std::left << task.taskName << termcolor::reset;
     if (task.project.length() > 0) {
         cout << termcolor::bold << termcolor::magenta << "   @" << task.project << " " << termcolor::reset;
@@ -156,6 +155,14 @@ void showLastTasks(int x) {
         }
         displayTask({task.ID, task.taskName, task.date, task.status, task.priority, task.project, task.tags });
         i++;
+    }
+}
+
+void showTaskFromProject(string project) {
+    for (auto &task : tasks) {
+        if (task.project == project) {
+            displayTask({task.ID, task.taskName, task.date, task.status, task.priority, task.project, task.tags});
+        }
     }
 }
 
@@ -233,11 +240,11 @@ static int callback_read(void *data, int argc, char **argv, char **azColName){
     return 0;
 }
 
-void loadFromFile(string fileName) {
+void loadFromFile() {
     char *zErrMsg = 0;
     int rc;
 
-    rc = sqlite3_open("tasks.db", &db);
+    rc = sqlite3_open(TASKS_FILE, &db);
 
     if (rc) {
         showError("Can't open database: " + (string)sqlite3_errmsg(db));
@@ -286,7 +293,7 @@ void saveToFile() {
     string sql = "";
 
     /* Open database */
-    rc = sqlite3_open("tasks.db", &db);
+    rc = sqlite3_open(TASKS_FILE, &db);
 
     if( rc ) {
         showError("Can't open database: " + (string)sqlite3_errmsg(db));
@@ -309,7 +316,13 @@ void saveToFile() {
     sql = "";
     for (auto &it : tasks) {
         sql += "INSERT INTO tasks (id, taskName, status, tags, date, project, priority) " \
-          "VALUES(" + to_string(it.ID) + ", \"" + it.taskName + "\", " + to_string(it.status) + ", \"" + it.tags + "\", \"" + it.date + "\", \"" + it.project + "\", " + to_string(it.priority) + ");";
+          "VALUES(" + to_string(it.ID) + ", " \
+          "\"" + it.taskName + "\", " \
+          "" + to_string(it.status) + ", " \
+          "\"" + it.tags + "\", " \
+          "\"" + it.date + "\", " \
+          "\"" + it.project + "\"," \
+          "" + to_string(it.priority) + ");";
     }
 
     //cout << sql << endl;
@@ -338,6 +351,7 @@ void help() {
     cout << "   --done - zadanie wykonane" << endl;
     cout << "   --pending - zadanie w trakcie wykonywania" << endl;
     cout << " memo last xxxx - wyswietlenie xxxx ostatnich zadan" << endl;
+    cout << " memo project yyyy - wyswietlenie zadan z listy" << endl;
     cout << " memo list - wyswietlanie zadan" << endl;
     cout << " memo list all - wyswietlanie zadan (z ukonczonymi)" << endl;
     cout << " memo list done - wyswietlanie zadan ukonczonych" << endl;
@@ -361,21 +375,16 @@ void help() {
 int main(int argc, char** argv) {
     if (argc <= 1) {
         help();
-
         return 0;
     }
 
-    char hostname[MAXHOSTNAMELEN];
-    gethostname(hostname, MAXHOSTNAMELEN);
     char username[MAXLOGNAME];
     getlogin_r(username, MAXLOGNAME);
-
-    system("clear");
 
     bool appExit = true;
     do {
         // Loading database
-        loadFromFile(TASKS_FILE);
+        loadFromFile();
 
         //cout << termcolor::blue << termcolor::bold << "------------< Memo (" << tasks.size() << " tasks) >------------" << termcolor::reset << endl << endl;
 
@@ -383,10 +392,12 @@ int main(int argc, char** argv) {
         list<String> words;
         if (compareStrings(argv[1], "run")) {
             appExit = false;
+            words.clear();
+
             char *wordsInput;
-            cout << "<" << (string)username << "@Memo>: ";
+            cout << "<" << username << "@Memo>: ";
             cin.clear();
-            cin.getline(wordsInput, 250);
+            cin.getline(wordsInput, 1024, '\n');
 
             stringstream ssin(wordsInput);
             while (ssin.good()) {
@@ -407,8 +418,8 @@ int main(int argc, char** argv) {
 //            cout << "C: " << word.text << endl;
 //        }
 
-        system("clear");
-        cout << termcolor::blue << termcolor::bold << "<>------------------< Memo >------------------<>" << termcolor::reset << endl << endl;
+        //system("clear");
+        //cout << termcolor::blue << termcolor::bold << "<>------------------< Memo >------------------<>" << termcolor::reset << endl << endl;
 
         Command command = T_NONE;
         int wordNumber = -1;
@@ -426,24 +437,27 @@ int main(int argc, char** argv) {
             wordNumber++;
             if (wordNumber == 0) {
                 //cout << " -- Command: " << it->text << endl;
-                if (compareStrings(word.text, "add") || compareStrings(word.text, "a"))      command = T_ADD;
-                if (compareStrings(word.text, "last") || compareStrings(word.text, "l"))     command = T_LAST;
-                if (compareStrings(word.text, "list") || compareStrings(word.text, "ls"))    command = T_LIST;
-                if (compareStrings(word.text, "find") || compareStrings(word.text, "s"))     command = T_FIND;
-                if (compareStrings(word.text, "rm"))                                         command = T_RM;
-                if (compareStrings(word.text, "new") || compareStrings(word.text, "n"))      command = T_NEW;
-                if (compareStrings(word.text, "pending") || compareStrings(word.text, "p"))  command = T_PENDING;
-                if (compareStrings(word.text, "done") || compareStrings(word.text, "d"))     command = T_DONE;
-                if (compareStrings(word.text, "edit") || compareStrings(word.text, "e"))     command = T_EDIT;
-                if (compareStrings(word.text, "i"))                                          command = T_I;
-                if (compareStrings(word.text, "ii"))                                         command = T_II;
-                if (compareStrings(word.text, "iii"))                                        command = T_III;
-                if (compareStrings(word.text, "iiii"))                                       command = T_IIII;
-                if (compareStrings(word.text, "five") || compareStrings(word.text, "f"))     command = T_FIVE;
-                if (compareStrings(word.text, "actual") || compareStrings(word.text, "todo"))command = T_ACTUAL;
-                if (compareStrings(word.text, "run"))                                        command = T_RUN;
-                if (compareStrings(word.text, "exit"))                                       command = T_EXIT;
-                if (compareStrings(word.text, "help"))                                       command = T_HELP;
+                if (compareStrings(word.text, "add") || compareStrings(word.text, "a")) command = T_ADD;
+                else if (compareStrings(word.text, "last") || compareStrings(word.text, "l")) command = T_LAST;
+                else if (compareStrings(word.text, "list") || compareStrings(word.text, "ls")) command = T_LIST;
+                else if (compareStrings(word.text, "find") || compareStrings(word.text, "s")) command = T_FIND;
+                else if (compareStrings(word.text, "rm")) command = T_RM;
+                else if (compareStrings(word.text, "new") || compareStrings(word.text, "n")) command = T_NEW;
+                else if (compareStrings(word.text, "pending") || compareStrings(word.text, "p")) command = T_PENDING;
+                else if (compareStrings(word.text, "done") || compareStrings(word.text, "d")) command = T_DONE;
+                else if (compareStrings(word.text, "edit") || compareStrings(word.text, "e")) command = T_EDIT;
+                else if (compareStrings(word.text, "i")) command = T_I;
+                else if (compareStrings(word.text, "project") || compareStrings(word.text, "pr")) command = T_PROJECT;
+                else if (compareStrings(word.text, "ii")) command = T_II;
+                else if (compareStrings(word.text, "iii")) command = T_III;
+                else if (compareStrings(word.text, "iiii")) command = T_IIII;
+                else if (compareStrings(word.text, "five") || compareStrings(word.text, "f")) command = T_FIVE;
+                else if (compareStrings(word.text, "actual") || compareStrings(word.text, "todo"))command = T_ACTUAL;
+                else if (compareStrings(word.text, "run")) command = T_RUN;
+                else if (compareStrings(word.text, "exit")) command = T_EXIT;
+                else if (compareStrings(word.text, "help")) command = T_HELP;
+                else if (compareStrings(word.text, "clear") || compareStrings(word.text, "cls")) system("clear");
+                else { showError("Nie znaleziono podanego polecenia. Mozesz uzyc komendy 'help' aby uzyskac pomoc!"); break; }
             } else {
                 if (command == T_ADD || command == T_EDIT) {
                     if (command == T_EDIT) {
@@ -524,6 +538,15 @@ int main(int argc, char** argv) {
                     break;
                 }
 
+                if (command == T_PROJECT) {
+                    if (word.text.length() > 0) {
+                        showTaskFromProject(word.text);
+                    } else {
+                        showError("Nie znaleziono projektu!");
+                    }
+                    break;
+                }
+
                 if (command == T_RM) {
                     if (word.text.length() > 0) {
                         removeTask(stoi(word.text));
@@ -589,6 +612,11 @@ int main(int argc, char** argv) {
 
         // Commit
         if (command == T_ADD && isReady) {
+            time_facet *facet = new time_facet("%H:%M %d/%m/%Y");
+            ostringstream oss;
+            oss.imbue(locale(oss.getloc(), facet));
+            oss << second_clock::local_time();
+            taskNew.date = oss.str();
             tasks.push_front(taskNew);
             cout << termcolor::cyan << termcolor::bold << "#" << taskNew.ID << termcolor::reset << " created" << endl;
         }
@@ -627,7 +655,7 @@ int main(int argc, char** argv) {
             help();
         }
 
-        cout << endl;
+        // cout << endl;
 
         saveToFile();
         tasks.clear();
