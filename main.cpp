@@ -4,7 +4,11 @@
 #include <list>
 #include <algorithm>
 #include <sstream>
+#include <fstream>
 #include "colors.h"
+#include <sqlite3.h>
+#include <netdb.h>
+#include <sys/param.h>
 
 using namespace std;
 
@@ -28,7 +32,8 @@ enum Command {
     T_FIVE,
     T_ACTUAL,
     T_RUN,
-    T_EXIT
+    T_EXIT,
+    T_HELP
 };
 
 enum TaskPriority {
@@ -46,13 +51,23 @@ enum TaskStatus {
 };
 
 struct Task {
-    int ID{};
-    string taskName;
-    string date;
-    int status{};
-    int priority{};
-    string project;
-    string tags;
+    int ID = 0;
+    string taskName = "";
+    string date = "";
+    int status = 0;
+    int priority = 0;
+    string project = "";
+    string tags = "";
+
+    ~Task() {
+        ID = 0;
+        taskName = "";
+        date = "";
+        status = 0;
+        priority = 0;
+        project = "";
+        tags = "";
+    }
 };
 
 struct String {
@@ -60,7 +75,8 @@ struct String {
 };
 
 list<Task> tasks;
-Task taskNew;
+Task taskNew = {};
+sqlite3 *db;
 
 void showError(const string &err) {
     cerr << termcolor::bold << termcolor::red << " >> " << err << termcolor::reset << endl;
@@ -104,10 +120,10 @@ void displayTask(Task task) {
         default:break;
     }
 
-    cout.width(45);
+    //cout.width(45);
     cout << std::left << task.taskName << termcolor::reset;
     if (task.project.length() > 0) {
-        cout << termcolor::bold << termcolor::magenta << "@" << task.project << " " << termcolor::reset;
+        cout << termcolor::bold << termcolor::magenta << "   @" << task.project << " " << termcolor::reset;
     }
 
     if (task.tags.length() > 0) {
@@ -176,101 +192,204 @@ void editTaskStatus(int id, TaskStatus taskStatus) {
     showError("Nie znaleziono zadania o ID: " + to_string(id) + " do edycji!");
 }
 
-void loadFromFile() {
-    FILE *infile;
-    infile = fopen(TASKS_FILE, "r");
-
-    if (infile == nullptr) {
-        showError("Database loading error!");
-        return;
+void editTaskPriority(int id, TaskPriority taskPriority) {
+    for (auto &task : tasks) {
+        if (task.ID == id) {
+            task.priority = taskPriority;
+            displayTask({task.ID, task.taskName, task.date, task.status, task.priority, task.project, task.tags});
+            return;
+        }
     }
-
-    Task it;
-    while(fread(&it, sizeof(struct Task), 1, infile)) {
-        tasks.push_back(it);
-    }
-
-    fclose(infile);
+    showError("Nie znaleziono zadania o ID: " + to_string(id) + " do edycji!");
 }
 
-void removeFile() {
-    remove("backup.dat");
-    rename(TASKS_FILE, "backup.dat");
-    remove(TASKS_FILE);
+static int callback_write(void *NotUsed, int argc, char **argv, char **azColName) {
+    int i;
+    for(i = 0; i<argc; i++) {
+        //printf("%s = %s\n", azColName[i], argv[i] ? argv[i] : "NULL");
+    }
+    //printf("\n");
+    return 0;
+}
+
+static int callback_read(void *data, int argc, char **argv, char **azColName){
+    int i;
+    //fprintf(stderr, "%s: ", (const char*)data);
+
+    Task task;
+    for(i = 0; i<argc; i++){
+        //printf("%s = %s\n", azColName[i], argv[i] ? argv[i] : "NULL");
+        if (compareStrings(azColName[i], "id")) task.ID = stoi(argv[i]);
+        if (compareStrings(azColName[i], "taskName")) task.taskName = argv[i];
+        if (compareStrings(azColName[i], "status")) task.status = stoi(argv[i]);
+        if (compareStrings(azColName[i], "tags")) task.tags = argv[i];
+        if (compareStrings(azColName[i], "date")) task.date = argv[i];
+        if (compareStrings(azColName[i], "project")) task.project = argv[i];
+        if (compareStrings(azColName[i], "priority")) task.priority = stoi(argv[i]);
+    }
+    tasks.push_back(task);
+
+    //printf("\n");
+    return 0;
+}
+
+void loadFromFile(string fileName) {
+    char *zErrMsg = 0;
+    int rc;
+
+    rc = sqlite3_open("tasks.db", &db);
+
+    if (rc) {
+        showError("Can't open database: " + (string)sqlite3_errmsg(db));
+        exit(0);
+    } else {
+        //printf(stderr, "Opened database successfully\n");
+        const char *sql = "CREATE TABLE tasks("  \
+         "id INT PRIMARY KEY NOT NULL," \
+         "taskName TEXT NOT NULL," \
+         "status INT NOT NULL," \
+         "tags CHAR(150) NOT NULL," \
+         "date CHAR(50) NOT NULL," \
+         "project CHAR(50) NOT NULL," \
+         "priority INT NOT NULL);";
+
+        rc = sqlite3_exec(db, sql, callback_write, 0, &zErrMsg);
+
+        if( rc != SQLITE_OK ){
+            //showError("Can't open database: " + (string)sqlite3_errmsg(db));
+            sqlite3_free(zErrMsg);
+        } else {
+            //fprintf(stdout, "Table created successfully\n");
+        }
+
+        /* Create SQL statement */
+        sql = "SELECT * FROM tasks";
+
+        /* Execute SQL statement */
+        const char* data = "Callback function called";
+        rc = sqlite3_exec(db, sql, callback_read, (void*)data, &zErrMsg);
+
+        if( rc != SQLITE_OK ) {
+            fprintf(stderr, "SQL error: %s\n", zErrMsg);
+            sqlite3_free(zErrMsg);
+        } else {
+            //fprintf(stdout, "Operation done successfully\n");
+        }
+    }
+    sqlite3_close(db);
 }
 
 void saveToFile() {
-    FILE *outfile;
-    outfile = fopen(TASKS_FILE, "w");
+    sqlite3 *db;
+    char *zErrMsg = 0;
+    int rc;
+    string sql = "";
 
-    if (outfile == nullptr) {
-        showError("Database opening error!");
-        exit(1);
+    /* Open database */
+    rc = sqlite3_open("tasks.db", &db);
+
+    if( rc ) {
+        showError("Can't open database: " + (string)sqlite3_errmsg(db));
+        exit(0);
+    } else {
+        //fprintf(stderr, "Opened database successfully\n");
     }
 
+    sql = "DELETE FROM tasks";
+    rc = sqlite3_exec(db, sql.c_str(), callback_write, 0, &zErrMsg);
+
+    if( rc != SQLITE_OK ){
+        fprintf(stderr, "SQL error: %s\n", zErrMsg);
+        sqlite3_free(zErrMsg);
+    } else {
+        //fprintf(stdout, "Records created successfully\n");
+    }
+
+    /* Create SQL statement */
+    sql = "";
     for (auto &it : tasks) {
-        Task *task = &it;
-        fwrite(task, sizeof(struct Task), 1, outfile);
+        sql += "INSERT INTO tasks (id, taskName, status, tags, date, project, priority) " \
+          "VALUES(" + to_string(it.ID) + ", \"" + it.taskName + "\", " + to_string(it.status) + ", \"" + it.tags + "\", \"" + it.date + "\", \"" + it.project + "\", " + to_string(it.priority) + ");";
     }
 
-    if (&fwrite == nullptr) {
-        showError("Saving to database error!");
-    }
+    //cout << sql << endl;
 
-    fclose(outfile);
+    /* Execute SQL statement */
+    rc = sqlite3_exec(db, sql.c_str(), callback_write, 0, &zErrMsg);
+
+    if( rc != SQLITE_OK ){
+        fprintf(stderr, "SQL error: %s\n", zErrMsg);
+        sqlite3_free(zErrMsg);
+    } else {
+        ///fprintf(stdout, "Records created successfully\n");
+    }
+    sqlite3_close(db);
+}
+
+void help() {
+    cout << termcolor::bold << termcolor::red << "Usage:" << termcolor::white << " memo param" << endl << endl;
+    cout << termcolor::bold << "Jak uzywac memo?" << termcolor::reset << endl;
+    cout << " memo add xxxxx - dodaj zadanie" << endl;
+    cout << "   --i - zadanie z normalnym priorytetem" << endl;
+    cout << "   --ii - zadanie z wysokim priorytetem" << endl;
+    cout << "   --iii - zadanie z wyzszym priorytetem" << endl;
+    cout << "   --iiii - zadanie z najwyzszym priorytetem" << endl;
+    cout << "   --normal - zadanie do zrobienia" << endl;
+    cout << "   --done - zadanie wykonane" << endl;
+    cout << "   --pending - zadanie w trakcie wykonywania" << endl;
+    cout << " memo last xxxx - wyswietlenie xxxx ostatnich zadan" << endl;
+    cout << " memo list - wyswietlanie zadan" << endl;
+    cout << " memo list all - wyswietlanie zadan (z ukonczonymi)" << endl;
+    cout << " memo list done - wyswietlanie zadan ukonczonych" << endl;
+    cout << " memo list pending- wyswietlanie zadan w trakcie wykonywania" << endl;
+    cout << " memo find xxxx - wyswietlenie zadania od ID" << endl;
+    cout << " memo rm yy - usuwanie zadania o ID yy" << endl;
+    cout << " memo new yy - ustawianie statusu zadania na nowe" << endl;
+    cout << " memo pending yy - ustawianie statusu zadania na w trakcie wykonywania" << endl;
+    cout << " memo done yy - ustawianie statusu zadania na wykonane" << endl;
+    cout << " memo edit yy - tryb edycji zadania" << endl;
+    cout << " memo i yy - zmiana priorytetu zadania o ID na normalny" << endl;
+    cout << " memo ii yy - zmiana priorytetu zadania o ID na wysoki" << endl;
+    cout << " memo iii yy - zmiana priorytetu zadania o ID na wyzszy" << endl;
+    cout << " memo iiii yy - zmiana priorytetu zadania o ID na najwyzszy" << endl;
+    cout << " memo five - ostatnie piec zadan" << endl;
+    cout << " memo actual/todo - aktualne zadania o statusie w trakcie wykonywania" << endl;
+    cout << endl;
+    cout << "      @projekt" << endl;
 }
 
 int main(int argc, char** argv) {
     if (argc <= 1) {
-        cout << termcolor::bold << termcolor::red << "Usage:" << termcolor::white << " memo param" << endl << endl;
-        cout << termcolor::bold << "Jak uzywac memo?" << termcolor::reset << endl;
-        cout << " memo add xxxxx - dodaj zadanie" << endl;
-        cout << "   --i - zadanie z normalnym priorytetem" << endl;
-        cout << "   --ii - zadanie z wysokim priorytetem" << endl;
-        cout << "   --iii - zadanie z wyzszym priorytetem" << endl;
-        cout << "   --iiii - zadanie z najwyzszym priorytetem" << endl;
-        cout << "   --normal - zadanie do zrobienia" << endl;
-        cout << "   --done - zadanie wykonane" << endl;
-        cout << "   --pending - zadanie w trakcie wykonywania" << endl;
-        cout << " memo last xxxx - wyswietlenie xxxx ostatnich zadan" << endl;
-        cout << " memo list - wyswietlanie zadan" << endl;
-        cout << " memo list all - wyswietlanie zadan (z ukonczonymi)" << endl;
-        cout << " memo list done - wyswietlanie zadan ukonczonych" << endl;
-        cout << " memo list pending- wyswietlanie zadan w trakcie wykonywania" << endl;
-        cout << " memo find xxxx - wyswietlenie zadania od ID" << endl;
-        cout << " memo rm yy - usuwanie zadania o ID yy" << endl;
-        cout << " memo new yy - ustawianie statusu zadania na nowe" << endl;
-        cout << " memo pending yy - ustawianie statusu zadania na w trakcie wykonywania" << endl;
-        cout << " memo done yy - ustawianie statusu zadania na wykonane" << endl;
-        cout << " memo edit yy - tryb edycji zadania" << endl;
-        cout << " memo i yy - zmiana priorytetu zadania o ID na normalny" << endl;
-        cout << " memo ii yy - zmiana priorytetu zadania o ID na wysoki" << endl;
-        cout << " memo iii yy - zmiana priorytetu zadania o ID na wyzszy" << endl;
-        cout << " memo iiii yy - zmiana priorytetu zadania o ID na najwyzszy" << endl;
-        cout << " memo five - ostatnie piec zadan" << endl;
-        cout << " memo actual - aktualne zadania o statusie w trakcie wykonywania" << endl;
-        cout << endl;
-        cout << "      @projekt" << endl;
+        help();
 
         return 0;
     }
 
+    char hostname[MAXHOSTNAMELEN];
+    gethostname(hostname, MAXHOSTNAMELEN);
+    char username[MAXLOGNAME];
+    getlogin_r(username, MAXLOGNAME);
+
+    system("clear");
+
     bool appExit = true;
     do {
-        cout << termcolor::blue << termcolor::bold << "------------< Memo >------------" << termcolor::reset << endl << endl;
         // Loading database
-        loadFromFile();
+        loadFromFile(TASKS_FILE);
+
+        //cout << termcolor::blue << termcolor::bold << "------------< Memo (" << tasks.size() << " tasks) >------------" << termcolor::reset << endl << endl;
 
         // Parsing arguments to list of words
         list<String> words;
         if (compareStrings(argv[1], "run")) {
             appExit = false;
-            string wordsInput;
-            cout << ">> ";
-            getline(cin, wordsInput);
+            char *wordsInput;
+            cout << "<" << (string)username << "@Memo>: ";
+            cin.clear();
+            cin.getline(wordsInput, 250);
 
             stringstream ssin(wordsInput);
-            while (ssin.good()){
+            while (ssin.good()) {
                 string word;
                 ssin >> word;
                 words.push_back({ word });
@@ -283,6 +402,13 @@ int main(int argc, char** argv) {
 
         // For single arg commands
         words.push_back({ "" });
+
+//        for (String &word : words) {
+//            cout << "C: " << word.text << endl;
+//        }
+
+        system("clear");
+        cout << termcolor::blue << termcolor::bold << "<>------------------< Memo >------------------<>" << termcolor::reset << endl << endl;
 
         Command command = T_NONE;
         int wordNumber = -1;
@@ -314,16 +440,22 @@ int main(int argc, char** argv) {
                 if (compareStrings(word.text, "iii"))                                        command = T_III;
                 if (compareStrings(word.text, "iiii"))                                       command = T_IIII;
                 if (compareStrings(word.text, "five") || compareStrings(word.text, "f"))     command = T_FIVE;
-                if (compareStrings(word.text, "actual") || compareStrings(word.text, "t"))   command = T_ACTUAL;
+                if (compareStrings(word.text, "actual") || compareStrings(word.text, "todo"))command = T_ACTUAL;
                 if (compareStrings(word.text, "run"))                                        command = T_RUN;
                 if (compareStrings(word.text, "exit"))                                       command = T_EXIT;
+                if (compareStrings(word.text, "help"))                                       command = T_HELP;
             } else {
                 if (command == T_ADD || command == T_EDIT) {
                     if (command == T_EDIT) {
                         // ID zadania
                         if (wordNumber == 1) {
                             if (word.text.length() > 0) {
-                                int id = stoi(word.text);
+                                int id = 0;
+                                try {
+                                    id = stoi(word.text);
+                                } catch (exception &ex) {
+                                    continue;
+                                }
                                 bool found = false;
                                 for (auto &task : tasks) {
                                     if (task.ID == id) {
@@ -335,6 +467,7 @@ int main(int argc, char** argv) {
                                         taskNew.project = task.project;
                                         taskNew.tags = task.tags;
                                         found = true;
+                                        isReady = true;
                                         break;
                                     }
                                 }
@@ -427,11 +560,28 @@ int main(int argc, char** argv) {
                     break;
                 }
 
+                if (command == T_FIVE) {
+                    showLastTasks(5);
+                    break;
+                }
+
                 if (command == T_LIST) {
-                    if (compareStrings(word.text, "")) showTasks();
-                    if (compareStrings(word.text, "pending")) showTasks(PENDING);
-                    if (compareStrings(word.text, "done")) showTasks(DONE);
-                    if (compareStrings(word.text, "all")) showTasks(ALL);
+                    if (compareStrings(word.text, "") || compareStrings(word.text, " ")) showTasks();
+                    if (compareStrings(word.text, "pending") || compareStrings(word.text, "p")) showTasks(PENDING);
+                    if (compareStrings(word.text, "done") || compareStrings(word.text, "d")) showTasks(DONE);
+                    if (compareStrings(word.text, "all") || compareStrings(word.text, "a")) showTasks(ALL);
+                    break;
+                }
+
+                if (command == T_I || command == T_II || command == T_III || command == T_IIII) {
+                    if (command == T_I) editTaskPriority(taskNew.ID, NORMAL);
+                    if (command == T_II) editTaskPriority(taskNew.ID, HIGH);
+                    if (command == T_III) editTaskPriority(taskNew.ID, HIGHER);
+                    if (command == T_IIII) editTaskPriority(taskNew.ID, HIGHEST);
+                }
+
+                if (command == T_ACTUAL) {
+                    showTasks(PENDING);
                     break;
                 }
             }
@@ -444,10 +594,25 @@ int main(int argc, char** argv) {
         }
 
         if (command == T_EDIT && isReady) {
-            removeTask(taskNew.ID);
-            tasks.push_front(taskNew);
-            cout << termcolor::cyan << termcolor::bold << "#" << taskNew.ID << termcolor::reset << " edited" << endl;
-            showTask(taskNew.ID);
+            //removeTask(taskNew.ID);
+            if (taskNew.taskName.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890_-()[].,<>?{}'\"\\%*@/^&$#!;:| ") != std::string::npos) {
+                std::cerr << "Unallowed characters, try again...\n";
+            } else {
+                //tasks.push_front(taskNew);
+                for (auto it = tasks.begin(); it != tasks.end(); it++) {
+                    if (it->ID == taskNew.ID) {
+                        it->taskName = taskNew.taskName;
+                        it->status = taskNew.status;
+                        it->project = taskNew.project;
+                        it->priority = taskNew.priority;
+                        it->date = taskNew.date;
+                        it->tags = taskNew.tags;
+                        break;
+                    }
+                }
+                cout << termcolor::cyan << termcolor::bold << "#" << taskNew.ID << termcolor::reset << " edited" << endl;
+                showTask(taskNew.ID);
+            }
         }
 
         if (command == T_RUN) {
@@ -458,11 +623,13 @@ int main(int argc, char** argv) {
             appExit = true;
         }
 
+        if (command == T_HELP) {
+            help();
+        }
+
         cout << endl;
 
-        removeFile();
         saveToFile();
-
         tasks.clear();
     } while (!appExit);
 
