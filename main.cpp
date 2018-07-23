@@ -3,6 +3,7 @@
 #include <string>
 #include <list>
 #include <algorithm>
+#include <sstream>
 #include "colors.h"
 
 using namespace std;
@@ -15,6 +16,7 @@ enum Command {
     T_LAST,
     T_LIST,
     T_RM,
+    T_NEW,
     T_PENDING,
     T_DONE,
     T_FIND,
@@ -24,7 +26,9 @@ enum Command {
     T_III,
     T_IIII,
     T_FIVE,
-    T_ACTUAL
+    T_ACTUAL,
+    T_RUN,
+    T_EXIT
 };
 
 enum TaskPriority {
@@ -41,28 +45,24 @@ enum TaskStatus {
     ALL
 };
 
-typedef struct Task {
-    int ID;
-    string taskname;
+struct Task {
+    int ID{};
+    string taskName;
     string date;
-    int status;
-    int priority;
+    int status{};
+    int priority{};
     string project;
     string tags;
+};
 
-    bool operator()(Task const& m) const {
-        return m.ID == ID;
-    }
-} _task;
-
-typedef struct String {
+struct String {
     string text;
-} _string;
+};
 
 list<Task> tasks;
 Task taskNew;
 
-void showError(string err) {
+void showError(const string &err) {
     cerr << termcolor::bold << termcolor::red << " >> " << err << termcolor::reset << endl;
 }
 
@@ -73,7 +73,7 @@ bool startsWithCaseInsensitive(string mainStr, string toMatch) {
     return mainStr.find(toMatch) == 0;
 }
 
-bool compareStrings(string s1, string s2) {
+bool compareStrings(const string &s1, const string &s2) {
     return s1 == s2;
 }
 
@@ -91,6 +91,7 @@ void displayTask(Task task) {
         case NONE: cout << "[ ]"; break;
         case PENDING: cout << "[•]"; break;
         case DONE: cout << "[√]"; break;
+        default:break;
     }
 
     cout << " ";
@@ -100,10 +101,11 @@ void displayTask(Task task) {
         case HIGH: cout << termcolor::blue; break;
         case HIGHER: cout << termcolor::yellow; break;
         case HIGHEST: cout << termcolor::red; break;
+        default:break;
     }
 
     cout.width(45);
-    cout << std::left << task.taskname << termcolor::reset;
+    cout << std::left << task.taskName << termcolor::reset;
     if (task.project.length() > 0) {
         cout << termcolor::bold << termcolor::magenta << "@" << task.project << " " << termcolor::reset;
     }
@@ -115,41 +117,41 @@ void displayTask(Task task) {
 }
 
 void showTasks() {
-    for (auto it = tasks.begin(); it != tasks.end(); it++) {
-        if (it->status != 2) {
-            displayTask({ it->ID, it->taskname, it->date, it->status, it->priority, it->project, it->tags });
+    for (auto &task : tasks) {
+        if (task.status != 2) {
+            displayTask({task.ID, task.taskName, task.date, task.status, task.priority, task.project, task.tags });
         }
     }
 }
 
 void showTasks(TaskStatus status) {
-    for (auto it = tasks.begin(); it != tasks.end(); it++) {
-        if (it->status == status || status == ALL) {
-            displayTask({ it->ID, it->taskname, it->date, it->status, it->priority, it->project, it->tags });
+    for (auto &task : tasks) {
+        if (task.status == status || status == ALL) {
+            displayTask({task.ID, task.taskName, task.date, task.status, task.priority, task.project, task.tags });
         }
     }
 }
 
 void showLastTasks(int x) {
     int i = 0;
-    for (auto it = tasks.begin(); it != tasks.end(); it++) {
+    for (auto &task : tasks) {
         if (i >= x) {
             break;
         }
-        displayTask({ it->ID, it->taskname, it->date, it->status, it->priority, it->project, it->tags });
+        displayTask({task.ID, task.taskName, task.date, task.status, task.priority, task.project, task.tags });
         i++;
     }
 }
 
 void showTask(int id) {
-    for (auto it = tasks.begin(); it != tasks.end(); it++) {
-        if (it->ID == id) {
-            displayTask({it->ID, it->taskname, it->date, it->status, it->priority, it->project, it->tags});
+    for (auto &task : tasks) {
+        if (task.ID == id) {
+            displayTask({task.ID, task.taskName, task.date, task.status, task.priority, task.project, task.tags});
             return;
         }
     }
 
-    showError("Nie znaleziono zadania o ID: " + to_string(id) + "!");
+    showError("Nie znaleziono zadania o ID: " + to_string(id) + " do wyswietlenia!");
 }
 
 void removeTask(int id) {
@@ -160,33 +162,40 @@ void removeTask(int id) {
         }
     }
 
-    showError("Nie znaleziono zadania o ID: " + to_string(id) + "!");
+    showError("Nie znaleziono zadania o ID: " + to_string(id) + " do usuniecia!");
 }
 
 void editTaskStatus(int id, TaskStatus taskStatus) {
-    for (auto it = tasks.begin(); it != tasks.end(); it++) {
-        if (it->ID == id) {
-            it->status = taskStatus;
+    for (auto &task : tasks) {
+        if (task.ID == id) {
+            task.status = taskStatus;
+            displayTask({task.ID, task.taskName, task.date, task.status, task.priority, task.project, task.tags});
             return;
         }
     }
-    showError("Nie znaleziono zadania o ID: " + to_string(id) + "!");
+    showError("Nie znaleziono zadania o ID: " + to_string(id) + " do edycji!");
 }
 
 void loadFromFile() {
     FILE *infile;
     infile = fopen(TASKS_FILE, "r");
 
-    if (infile == NULL) {
-        cerr << ">> Database loading error!" << endl;
+    if (infile == nullptr) {
+        showError("Database loading error!");
         return;
     }
 
-    Task task;
-    while(fread(&task, sizeof(struct Task), 1, infile)) {
-        tasks.push_back(task);
+    Task it;
+    while(fread(&it, sizeof(struct Task), 1, infile)) {
+        tasks.push_back(it);
     }
 
+    fclose(infile);
+}
+
+void removeFile() {
+    remove("backup.dat");
+    rename(TASKS_FILE, "backup.dat");
     remove(TASKS_FILE);
 }
 
@@ -194,19 +203,21 @@ void saveToFile() {
     FILE *outfile;
     outfile = fopen(TASKS_FILE, "w");
 
-    if (outfile == NULL) {
+    if (outfile == nullptr) {
         showError("Database opening error!");
         exit(1);
     }
 
-    for (auto it = tasks.begin(); it != tasks.end(); it++) {
-        Task *task = &(*it);
+    for (auto &it : tasks) {
+        Task *task = &it;
         fwrite(task, sizeof(struct Task), 1, outfile);
     }
 
     if (&fwrite == nullptr) {
         showError("Saving to database error!");
     }
+
+    fclose(outfile);
 }
 
 int main(int argc, char** argv) {
@@ -228,12 +239,14 @@ int main(int argc, char** argv) {
         cout << " memo list pending- wyswietlanie zadan w trakcie wykonywania" << endl;
         cout << " memo find xxxx - wyswietlenie zadania od ID" << endl;
         cout << " memo rm yy - usuwanie zadania o ID yy" << endl;
+        cout << " memo new yy - ustawianie statusu zadania na nowe" << endl;
         cout << " memo pending yy - ustawianie statusu zadania na w trakcie wykonywania" << endl;
         cout << " memo done yy - ustawianie statusu zadania na wykonane" << endl;
         cout << " memo edit yy - tryb edycji zadania" << endl;
-        cout << " memo i yy - zmiana priorytetu zadania o ID na wysoki" << endl;
-        cout << " memo ii yy - zmiana priorytetu zadania o ID na wyzszy" << endl;
-        cout << " memo iii yy - zmiana priorytetu zadania o ID na najwyzszy" << endl;
+        cout << " memo i yy - zmiana priorytetu zadania o ID na normalny" << endl;
+        cout << " memo ii yy - zmiana priorytetu zadania o ID na wysoki" << endl;
+        cout << " memo iii yy - zmiana priorytetu zadania o ID na wyzszy" << endl;
+        cout << " memo iiii yy - zmiana priorytetu zadania o ID na najwyzszy" << endl;
         cout << " memo five - ostatnie piec zadan" << endl;
         cout << " memo actual - aktualne zadania o statusie w trakcie wykonywania" << endl;
         cout << endl;
@@ -242,135 +255,216 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    cout << termcolor::blue << termcolor::bold << "------------< Memo >------------" << termcolor::reset << endl << endl;
-    loadFromFile();
+    bool appExit = true;
+    do {
+        cout << termcolor::blue << termcolor::bold << "------------< Memo >------------" << termcolor::reset << endl << endl;
+        // Loading database
+        loadFromFile();
 
-    // Parsing arguments to list of words
-    list<String> words;
-    for (int i = 1; i < argc; i++) {
-        words.push_back({ argv[i] });
-    }
+        // Parsing arguments to list of words
+        list<String> words;
+        if (compareStrings(argv[1], "run")) {
+            appExit = false;
+            string wordsInput;
+            cout << ">> ";
+            getline(cin, wordsInput);
 
-    // For single arg commands
-    words.push_back({ "" });
-
-    Command command = T_NONE;
-    int wordNumber = 0;
-
-    taskNew.priority = NORMAL;
-    taskNew.project = "";
-    taskNew.taskname = "";
-    taskNew.ID = tasks.front().ID + 1;
-    taskNew.status = NONE;
-    taskNew.tags = "";
-
-    bool isReady = false;
-
-    for (auto it = words.begin(); it != words.end(); it++) {
-        if (wordNumber == 0) {
-            //cout << " -- Command: " << it->text << endl;
-            if (compareStrings(it->text, "add"))      command = T_ADD;
-            if (compareStrings(it->text, "last"))     command = T_LAST;
-            if (compareStrings(it->text, "list"))     command = T_LIST;
-            if (compareStrings(it->text, "find"))     command = T_FIND;
-            if (compareStrings(it->text, "rm"))       command = T_RM;
-            if (compareStrings(it->text, "pending"))  command = T_PENDING;
-            if (compareStrings(it->text, "done"))     command = T_DONE;
-            if (compareStrings(it->text, "edit"))     command = T_EDIT;
-            if (compareStrings(it->text, "i"))        command = T_I;
-            if (compareStrings(it->text, "ii"))       command = T_II;
-            if (compareStrings(it->text, "iii"))      command = T_III;
-            if (compareStrings(it->text, "iiii"))     command = T_IIII;
-            if (compareStrings(it->text, "five"))     command = T_FIVE;
-            if (compareStrings(it->text, "actual"))   command = T_ACTUAL;
+            stringstream ssin(wordsInput);
+            while (ssin.good()){
+                string word;
+                ssin >> word;
+                words.push_back({ word });
+            }
         } else {
-            if (command == T_ADD) {
-                if (startsWithCaseInsensitive(it->text, "@")) {
-                    taskNew.project = it->text.substr(1, it->text.length() - 1);
-                } else if (compareStrings(it->text, "--iiii")) {
-                    taskNew.priority = HIGHEST;
-                } else if (compareStrings(it->text, "--iii")) {
-                    taskNew.priority = HIGHER;
-                } else if (compareStrings(it->text, "--ii")) {
-                    taskNew.priority = HIGH;
-                } else if (compareStrings(it->text, "--i")) {
-                    taskNew.priority = HIGH;
-                } else if (compareStrings(it->text, "--normal")) {
-                    taskNew.status = NONE;
-                } else if (compareStrings(it->text, "--pending")) {
-                    taskNew.status = PENDING;
-                } else if (compareStrings(it->text, "--done")) {
-                    taskNew.status = DONE;
-                } else {
-                    taskNew.taskname += it->text + " ";
-                    isReady = true;
-                }
-            }
-
-            if (command == T_LAST) {
-                int i = 1;
-                if (it->text.length() > 0) {
-                    i = stoi(it->text);
-                }
-
-                showLastTasks(i);
-                break;
-            }
-
-            if (command == T_FIND) {
-                if (it->text.length() > 0) {
-                    showTask(stoi(it->text));
-                } else {
-                    showError("Nie znaleziono ID zadania!");
-                }
-                break;
-            }
-
-            if (command == T_RM) {
-                if (it->text.length() > 0) {
-                    removeTask(stoi(it->text));
-                } else {
-                    showError("Nie znaleziono ID zadania!");
-                }
-                break;
-            }
-
-            if (command == T_PENDING) {
-                if (it->text.length() > 0) {
-                    editTaskStatus(stoi(it->text), PENDING);
-                } else {
-                    showError("Nie znaleziono ID zadania!");
-                }
-                break;
-            }
-
-            if (command == T_LIST) {
-                if (compareStrings(it->text, "")) showTasks();
-                if (compareStrings(it->text, "pending")) showTasks(PENDING);
-                if (compareStrings(it->text, "done")) showTasks(DONE);
-                if (compareStrings(it->text, "all")) showTasks(ALL);
-                break;
+            for (int i = 1; i < argc; i++) {
+                words.push_back({ argv[i] });
             }
         }
-        wordNumber++;
-    }
 
-    // Commit
-    if (command == T_ADD && isReady) {
-        tasks.push_front(taskNew);
-        cout << termcolor::cyan << termcolor::bold << "#" << taskNew.ID << termcolor::reset << " created" << endl;
-        //showTasks();
-    }
+        // For single arg commands
+        words.push_back({ "" });
 
-//    tasks.push_back({ 157, "Odblokowac cos", "miesiac temu", NONE, NORMAL });
-//    tasks.push_back({ 211, "Zablokowac cos", "jutro", PENDING, NORMAL });
-//    tasks.push_back({ 334, "Nie wiem co jeszcze", "jutro", DONE, HIGH });
-//    tasks.push_back({ 442, "Siema elo", "za 3 dni", NONE, HIGHER });
-//    tasks.push_back({ 587, "Testowanie", "za 10 dni", NONE, HIGHEST });
+        Command command = T_NONE;
+        int wordNumber = -1;
 
-    cout << endl;
+        taskNew.priority = NORMAL;
+        taskNew.project = "";
+        taskNew.taskName = "";
+        taskNew.ID = tasks.front().ID + 1;
+        taskNew.status = NONE;
+        taskNew.tags = "";
 
-    saveToFile();
+        bool isReady = false;
+
+        for (auto &word : words) {
+            wordNumber++;
+            if (wordNumber == 0) {
+                //cout << " -- Command: " << it->text << endl;
+                if (compareStrings(word.text, "add") || compareStrings(word.text, "a"))      command = T_ADD;
+                if (compareStrings(word.text, "last") || compareStrings(word.text, "l"))     command = T_LAST;
+                if (compareStrings(word.text, "list") || compareStrings(word.text, "ls"))    command = T_LIST;
+                if (compareStrings(word.text, "find") || compareStrings(word.text, "s"))     command = T_FIND;
+                if (compareStrings(word.text, "rm"))                                         command = T_RM;
+                if (compareStrings(word.text, "new") || compareStrings(word.text, "n"))      command = T_NEW;
+                if (compareStrings(word.text, "pending") || compareStrings(word.text, "p"))  command = T_PENDING;
+                if (compareStrings(word.text, "done") || compareStrings(word.text, "d"))     command = T_DONE;
+                if (compareStrings(word.text, "edit") || compareStrings(word.text, "e"))     command = T_EDIT;
+                if (compareStrings(word.text, "i"))                                          command = T_I;
+                if (compareStrings(word.text, "ii"))                                         command = T_II;
+                if (compareStrings(word.text, "iii"))                                        command = T_III;
+                if (compareStrings(word.text, "iiii"))                                       command = T_IIII;
+                if (compareStrings(word.text, "five") || compareStrings(word.text, "f"))     command = T_FIVE;
+                if (compareStrings(word.text, "actual") || compareStrings(word.text, "t"))   command = T_ACTUAL;
+                if (compareStrings(word.text, "run"))                                        command = T_RUN;
+                if (compareStrings(word.text, "exit"))                                       command = T_EXIT;
+            } else {
+                if (command == T_ADD || command == T_EDIT) {
+                    if (command == T_EDIT) {
+                        // ID zadania
+                        if (wordNumber == 1) {
+                            if (word.text.length() > 0) {
+                                int id = stoi(word.text);
+                                bool found = false;
+                                for (auto &task : tasks) {
+                                    if (task.ID == id) {
+                                        taskNew.ID = task.ID;
+                                        taskNew.taskName = "";
+                                        taskNew.date = task.date;
+                                        taskNew.status = task.status;
+                                        taskNew.priority = task.priority;
+                                        taskNew.project = task.project;
+                                        taskNew.tags = task.tags;
+                                        found = true;
+                                        break;
+                                    }
+                                }
+
+                                if (!found) {
+                                    showError("Nie znaleziono zadania o podanym ID!");
+                                }
+                            } else {
+                                showError("Nie znaleziono ID zadania!");
+                                break;
+                            }
+                            continue;
+                        }
+                    }
+
+                    if (startsWithCaseInsensitive(word.text, "@")) {
+                        taskNew.project = word.text.substr(1, word.text.length() - 1);
+                    } else if (compareStrings(word.text, "--iiii")) {
+                        taskNew.priority = HIGHEST;
+                    } else if (compareStrings(word.text, "--iii")) {
+                        taskNew.priority = HIGHER;
+                    } else if (compareStrings(word.text, "--ii")) {
+                        taskNew.priority = HIGH;
+                    } else if (compareStrings(word.text, "--i")) {
+                        taskNew.priority = HIGH;
+                    } else if (compareStrings(word.text, "--normal")) {
+                        taskNew.status = NONE;
+                    } else if (compareStrings(word.text, "--pending")) {
+                        taskNew.status = PENDING;
+                    } else if (compareStrings(word.text, "--done")) {
+                        taskNew.status = DONE;
+                    } else {
+                        taskNew.taskName += word.text + " ";
+                        isReady = true;
+                    }
+                }
+
+                if (command == T_LAST) {
+                    int i = 1;
+                    if (word.text.length() > 0) {
+                        i = stoi(word.text);
+                    }
+
+                    showLastTasks(i);
+                    break;
+                }
+
+                if (command == T_FIND) {
+                    if (word.text.length() > 0) {
+                        showTask(stoi(word.text));
+                    } else {
+                        showError("Nie znaleziono ID zadania!");
+                    }
+                    break;
+                }
+
+                if (command == T_RM) {
+                    if (word.text.length() > 0) {
+                        removeTask(stoi(word.text));
+                    } else {
+                        showError("Nie znaleziono ID zadania!");
+                    }
+                    break;
+                }
+
+                if (command == T_NEW) {
+                    if (word.text.length() > 0) {
+                        editTaskStatus(stoi(word.text), NONE);
+                    } else {
+                        showError("Nie znaleziono ID zadania!");
+                    }
+                    break;
+                }
+
+                if (command == T_PENDING) {
+                    if (word.text.length() > 0) {
+                        editTaskStatus(stoi(word.text), PENDING);
+                    } else {
+                        showError("Nie znaleziono ID zadania!");
+                    }
+                    break;
+                }
+
+                if (command == T_DONE) {
+                    if (word.text.length() > 0) {
+                        editTaskStatus(stoi(word.text), DONE);
+                    } else {
+                        showError("Nie znaleziono ID zadania!");
+                    }
+                    break;
+                }
+
+                if (command == T_LIST) {
+                    if (compareStrings(word.text, "")) showTasks();
+                    if (compareStrings(word.text, "pending")) showTasks(PENDING);
+                    if (compareStrings(word.text, "done")) showTasks(DONE);
+                    if (compareStrings(word.text, "all")) showTasks(ALL);
+                    break;
+                }
+            }
+        }
+
+        // Commit
+        if (command == T_ADD && isReady) {
+            tasks.push_front(taskNew);
+            cout << termcolor::cyan << termcolor::bold << "#" << taskNew.ID << termcolor::reset << " created" << endl;
+        }
+
+        if (command == T_EDIT && isReady) {
+            removeTask(taskNew.ID);
+            tasks.push_front(taskNew);
+            cout << termcolor::cyan << termcolor::bold << "#" << taskNew.ID << termcolor::reset << " edited" << endl;
+            showTask(taskNew.ID);
+        }
+
+        if (command == T_RUN) {
+            appExit = false;
+        }
+
+        if (command == T_EXIT) {
+            appExit = true;
+        }
+
+        cout << endl;
+
+        removeFile();
+        saveToFile();
+
+        tasks.clear();
+    } while (!appExit);
 
     return 0;
 }
