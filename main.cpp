@@ -33,7 +33,8 @@ enum Command {
     T_EXIT,
     T_HELP,
     T_PROJECT,
-    T_TAG
+    T_TAG,
+    T_DESC
 };
 
 enum TaskPriority {
@@ -58,6 +59,7 @@ struct Task {
     int priority = 0;
     string project = "";
     string tags = "";
+    string desc = "";
 
     ~Task() {
         ID = 0;
@@ -67,6 +69,7 @@ struct Task {
         priority = 0;
         project = "";
         tags = "";
+        desc = "";
     }
 };
 
@@ -137,12 +140,19 @@ void displayTask(Task task) {
         cout << " " << termcolor::on_blue << termcolor::white << " " << task.tags << termcolor::reset;
     }
     cout << endl;
+
+    if (task.desc.length() > 1) {
+        cout.width(39);
+        cout << termcolor::white << termcolor::on_grey << std::left << task.desc << termcolor::reset;
+        cout << endl;
+    }
+
 }
 
 void showTasks() {
     for (auto &task : tasks) {
         if (task.status != 2) {
-            displayTask({task.ID, task.taskName, task.date, task.status, task.priority, task.project, task.tags });
+            displayTask({task.ID, task.taskName, task.date, task.status, task.priority, task.project, task.tags, task.desc });
         }
     }
 }
@@ -150,7 +160,7 @@ void showTasks() {
 void showTasks(TaskStatus status) {
     for (auto &task : tasks) {
         if (task.status == status || status == ALL) {
-            displayTask({task.ID, task.taskName, task.date, task.status, task.priority, task.project, task.tags });
+            displayTask({task.ID, task.taskName, task.date, task.status, task.priority, task.project, task.tags, task.desc });
         }
     }
 }
@@ -161,7 +171,7 @@ void showLastTasks(int x) {
         if (i >= x) {
             break;
         }
-        displayTask({task.ID, task.taskName, task.date, task.status, task.priority, task.project, task.tags });
+        displayTask({ task.ID, task.taskName, task.date, task.status, task.priority, task.project, task.tags, task.desc });
         i++;
     }
 }
@@ -169,7 +179,7 @@ void showLastTasks(int x) {
 void showTaskFromProject(string project) {
     for (auto &task : tasks) {
         if (task.project == project) {
-            displayTask({task.ID, task.taskName, task.date, task.status, task.priority, task.project, task.tags});
+            displayTask({task.ID, task.taskName, task.date, task.status, task.priority, task.project, task.tags, task.desc });
         }
     }
 }
@@ -178,7 +188,7 @@ void showTasksWithTag(string tag) {
     cout << "TAG: " << tag << endl;
     for (auto &task : tasks) {
         if (string::npos != task.tags.find(tag)) {
-            displayTask({task.ID, task.taskName, task.date, task.status, task.priority, task.project, task.tags});
+            displayTask({task.ID, task.taskName, task.date, task.status, task.priority, task.project, task.tags, task.desc });
         }
     }
 }
@@ -186,7 +196,7 @@ void showTasksWithTag(string tag) {
 void showTask(int id) {
     for (auto &task : tasks) {
         if (task.ID == id) {
-            displayTask({task.ID, task.taskName, task.date, task.status, task.priority, task.project, task.tags});
+            displayTask({task.ID, task.taskName, task.date, task.status, task.priority, task.project, task.tags, task.desc});
             return;
         }
     }
@@ -241,6 +251,7 @@ static int callback_read(void *data, int argc, char **argv, char **azColName){
         if (compareStrings(azColName[i], "tags")) task.tags = argv[i];
         if (compareStrings(azColName[i], "date")) task.date = argv[i];
         if (compareStrings(azColName[i], "project")) task.project = argv[i];
+        if (compareStrings(azColName[i], "desc")) task.desc = argv[i];
         if (compareStrings(azColName[i], "priority")) task.priority = stoi(argv[i]);
     }
     tasks.push_back(task);
@@ -265,6 +276,7 @@ void loadFromFile() {
          "tags CHAR(150) NOT NULL," \
          "date CHAR(50) NOT NULL," \
          "project CHAR(50) NOT NULL," \
+         "desc TEXT," \
          "priority INT NOT NULL);";
 
         rc = sqlite3_exec(db, sql, callback_write, 0, &zErrMsg);
@@ -308,13 +320,14 @@ void saveToFile() {
 
     sql = "";
     for (auto &it : tasks) {
-        sql += "INSERT INTO tasks (id, taskName, status, tags, date, project, priority) " \
+        sql += "INSERT INTO tasks (id, taskName, status, tags, date, project, desc, priority) " \
           "VALUES(" + to_string(it.ID) + ", " \
           "\"" + it.taskName + "\", " \
           "" + to_string(it.status) + ", " \
           "\"" + it.tags + "\", " \
           "\"" + it.date + "\", " \
           "\"" + it.project + "\"," \
+          "\"" + it.desc + "\"," \
           "" + to_string(it.priority) + ");";
     }
 
@@ -354,6 +367,7 @@ void help() {
     cout << "   status/s - sortowanie wedlug statusu" << endl;
     cout << "   statusr/sr - odwrocone sortowanie wedlug statusu" << endl;
     cout << termcolor::bold << " memo" << termcolor::reset << " find/s xxxx - wyswietlenie zadania o podanym ID" << endl;
+    cout << termcolor::bold << " memo" << termcolor::reset << " desc/ds xxxx yyyy - zmiana opisu dla zadania o podanym ID" << endl;
     cout << termcolor::bold << " memo" << termcolor::reset << " tag/t xxxx - wyswietlenie zadan z tagiem" << endl;
     cout << termcolor::bold << " memo" << termcolor::reset << " rm yy - usuwanie zadania o ID yy" << endl;
     cout << termcolor::bold << " memo" << termcolor::reset << " new/n yy - ustawianie statusu zadania na nowe" << endl;
@@ -375,8 +389,6 @@ void help() {
 
 int main(int argc, char** argv) {
     if (argc <= 1) {
-        //help();
-        //return 0;
         argc++;
         argv[1] = const_cast<char *>("ls");
     }
@@ -430,6 +442,7 @@ int main(int argc, char** argv) {
         taskNew.ID = tasks.front().ID + 1;
         taskNew.status = NONE;
         taskNew.tags = "";
+        taskNew.desc = "";
 
         string listSortType = "";
 
@@ -443,6 +456,7 @@ int main(int argc, char** argv) {
                 else if (compareStrings(word.text, "last") || compareStrings(word.text, "l")) command = T_LAST;
                 else if (compareStrings(word.text, "list") || compareStrings(word.text, "ls")) command = T_LIST;
                 else if (compareStrings(word.text, "find") || compareStrings(word.text, "s")) command = T_FIND;
+                else if (compareStrings(word.text, "desc") || compareStrings(word.text, "ds")) command = T_DESC;
                 else if (compareStrings(word.text, "tag") || compareStrings(word.text, "t")) command = T_TAG;
                 else if (compareStrings(word.text, "rm")) command = T_RM;
                 else if (compareStrings(word.text, "new") || compareStrings(word.text, "n")) command = T_NEW;
@@ -483,6 +497,7 @@ int main(int argc, char** argv) {
                                         taskNew.priority = task.priority;
                                         taskNew.project = task.project;
                                         taskNew.tags = "";
+                                        taskNew.desc = "";
                                         found = true;
                                         isReady = true;
                                         break;
@@ -532,6 +547,22 @@ int main(int argc, char** argv) {
 
                     showLastTasks(i);
                     break;
+                }
+
+                if (command == T_DESC) {
+                    if (wordNumber == 1) {
+                        if (word.text.length() > 0) {
+                            try {
+                                taskNew.ID = stoi(word.text);
+                            } catch (exception ex) {
+                                showError("Musisz podac ID!");
+                                command = T_NONE;
+                                break;
+                            }
+                        }
+                    } else {
+                        taskNew.desc += " " + word.text;
+                    }
                 }
 
                 if (command == T_FIND) {
@@ -686,7 +717,7 @@ int main(int argc, char** argv) {
             if (taskNew.taskName.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890_-()[].,<>?{}'\"\\%*@/^&$#!;:| ") != std::string::npos) {
                 std::cerr << "Unallowed characters, try again...\n";
             } else {
-                //tasks.push_front(taskNew);
+                bool founded = false;
                 for (auto it = tasks.begin(); it != tasks.end(); it++) {
                     if (it->ID == taskNew.ID) {
                         it->taskName = taskNew.taskName;
@@ -695,11 +726,38 @@ int main(int argc, char** argv) {
                         it->priority = taskNew.priority;
                         it->date = taskNew.date;
                         it->tags = taskNew.tags;
+                        it->desc = taskNew.desc;
+                        founded = true;
                         break;
                     }
                 }
-                cout << termcolor::cyan << termcolor::bold << "#" << taskNew.ID << termcolor::reset << " edited" << endl;
-                showTask(taskNew.ID);
+                if (founded) {
+                    cout << termcolor::cyan << termcolor::bold << "#" << taskNew.ID << termcolor::reset << " edited" << endl;
+                    showTask(taskNew.ID);
+                } else {
+                    showError("Nie znaleziono zadania o podanym ID!");
+                }
+            }
+        }
+
+        if (command == T_DESC) {
+            if (taskNew.taskName.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890_-()[].,<>?{}'\"\\%*@/^&$#!;:| ") != std::string::npos) {
+                std::cerr << "Unallowed characters, try again...\n";
+            } else {
+                bool founded = false;
+                for (auto it = tasks.begin(); it != tasks.end(); it++) {
+                    if (it->ID == taskNew.ID) {
+                        it->desc = taskNew.desc;
+                        founded = true;
+                        break;
+                    }
+                }
+                if (founded) {
+                    cout << termcolor::cyan << termcolor::bold << "#" << taskNew.ID << termcolor::reset << " description edited" << endl;
+                    showTask(taskNew.ID);
+                } else {
+                    showError("Nie znaleziono zadania o podanym ID!");
+                }
             }
         }
 
