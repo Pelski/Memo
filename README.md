@@ -6,9 +6,9 @@ Works on macOS. Only polish language (for this moment).
 
 **Features:**
 
- - priority
+ - priority: 0/1/2/3
  - projects
- - tag 
+ - tags
  - status: new/pending/done
  - sorting
  - help
