@@ -11,6 +11,7 @@ Works on macOS. Only polish language (for this moment).
  - tags
  - status: new/pending/done
  - sorting
+ - filters
  - help
  
 This is my old project. I use it every day and it works very well. Now I want to share it! Check it out.
