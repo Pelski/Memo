@@ -1,6 +1,6 @@
 # Memo
 
-Works on macOS. Only polish language available (for this moment) but it's really simple. 
+Works on macOS (not tested on other platforms). Only polish language available (for this moment) but it's really simple. 
 
 ![Memo Screenshot](https://github.com/Pelski/Memo/blob/master/screenshot.png?raw=true)
 
