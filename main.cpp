@@ -10,6 +10,7 @@
 using namespace std;
 using namespace boost::posix_time;
 
+#define USERNAME "username"
 #define TASKS_FILE "/Users/pelski/.tasks.db"
 
 enum Command {
@@ -393,8 +394,8 @@ int main(int argc, char** argv) {
         argv[1] = const_cast<char *>("ls");
     }
 
-    char username[MAXLOGNAME];
-    getlogin_r(username, MAXLOGNAME);
+    //char username[MAXLOGNAME];
+    //getlogin_r(username, MAXLOGNAME);
 
     bool appExit = true;
     do {
@@ -408,7 +409,7 @@ int main(int argc, char** argv) {
             words.clear();
 
             char *wordsInput = new char[1024];
-            cout << "<" << username << "@Memo>: ";
+            cout << "<" << USERNAME << "@Memo>: ";
             cin.clear();
             cin.getline(wordsInput, 1024, '\n');
 
